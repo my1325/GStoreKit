@@ -38,7 +38,7 @@ public final class CSKProductsRequestDelegate: NSObject, SKProductsRequestDelega
     }
 }
 
-extension SKProductsRequest {
+public extension SKProductsRequest {
     
     var productsRequestPublisher: AnyPublisher<SKProductsResponse, Error> {
         CSKProductsRequestDelegate.sharedWithParent(self)

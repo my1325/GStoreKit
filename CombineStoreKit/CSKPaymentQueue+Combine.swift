@@ -48,7 +48,7 @@ extension CSKReceiptError: CustomStringConvertible {
     }
 }
 
-extension SKPaymentQueue {
+public extension SKPaymentQueue {
     func verifyReceiptPublisher(transaction: SKPaymentTransaction, excludeOldTransaction: Bool = false) -> AnyPublisher<SKPaymentTransaction, Error> {
         #if DEBUG
             let verifyReceiptURLString = "https://sandbox.itunes.apple.com/verifyReceipt"
