@@ -5,48 +5,13 @@
 //  Created by mayong on 2023/12/8.
 //
 
-import Foundation
-import StoreKit
 import Combine
 import CombineExt
-
-public enum CSKReceiptError: Error {
-    case invalid(code: Int)
-    case illegal
-    case urlError(error: URLError)
-    case nonHTTPResponse(response: URLResponse)
-}
-
-extension CSKReceiptError: CustomStringConvertible {
-    public var description: String {
-        let message: String
-        switch self {
-        case .invalid(21000):
-            message = "The App Store could not read the JSON object you provided."
-        case .invalid(21002):
-            message = "The data in the receipt-data property was malformed or missing."
-        case .invalid(21003):
-            message = "The receipt could not be authenticated."
-        case .invalid(21004):
-            message = "The shared secret you provided does not match the shared secret on file for your account."
-        case .invalid(21005):
-            message = "The receipt server is not currently available."
-        case .invalid(21006):
-            message = "This receipt is valid but the subscription has expired. When this status code is returned to your server, the receipt data is also decoded and returned as part of the response."
-        case .invalid(21007):
-            message = "This receipt is from the test environment, but it was sent to the production environment for verification. Send it to the test environment instead."
-        case .invalid(21008):
-            message = "This receipt is from the production environment, but it was sent to the test environment for verification. Send it to the production environment instead."
-        case let .urlError(error):
-            message = error.localizedDescription
-        case let .nonHTTPResponse(response):
-            message = "Response is not NSHTTPURLResponse `\(response)`."
-        default:
-            message = "Unknown error occured."
-        }
-        return message
-    }
-}
+import Foundation
+import StoreKit
+#if canImport(SKCore)
+    import SKCore
+#endif
 
 public extension SKPaymentQueue {
     func verifyReceiptPublisher(transaction: SKPaymentTransaction, excludeOldTransaction: Bool = false) -> AnyPublisher<SKPaymentTransaction, Error> {
@@ -73,17 +38,17 @@ public extension SKPaymentQueue {
 
             return URLSession.shared.dataTaskPublisher(for: request)
                 .timeout(30, scheduler: DispatchQueue.global(qos: .background))
-                .mapError({ CSKReceiptError.urlError(error: $0) })
-                .map({ ($0.response as! HTTPURLResponse, $0.data) })
-                .tryMap({ pair -> Any in
+                .mapError { SKReceiptError.urlError(error: $0) }
+                .map { ($0.response as! HTTPURLResponse, $0.data) }
+                .tryMap { pair -> Any in
                     if 200 ..< 300 ~= pair.0.statusCode {
                         return try JSONSerialization.jsonObject(with: pair.1, options: [.fragmentsAllowed])
                     }
-                    throw CSKReceiptError.nonHTTPResponse(response: pair.0)
-                })
-                .flatMap({ [unowned self] json -> AnyPublisher<SKPaymentTransaction, Error> in
+                    throw SKReceiptError.nonHTTPResponse(response: pair.0)
+                }
+                .flatMap { [unowned self] json -> AnyPublisher<SKPaymentTransaction, Error> in
                     self.verificationResultPublisher(for: transaction, response: json)
-                })
+                }
                 .eraseToAnyPublisher()
         } catch {
             return Fail(outputType: SKPaymentTransaction.self, failure: error)
@@ -106,33 +71,82 @@ public extension SKPaymentQueue {
                 return Just(transaction).setFailureType(to: Error.self)
                     .eraseToAnyPublisher()
             } else {
-                return Fail(outputType: SKPaymentTransaction.self, failure: CSKReceiptError.illegal)
+                return Fail(outputType: SKPaymentTransaction.self, failure: SKReceiptError.illegal)
                     .eraseToAnyPublisher()
             }
         } else {
-            let error = CSKReceiptError.invalid(code: state)
+            let error = SKReceiptError.invalid(code: state)
             return Fail(outputType: SKPaymentTransaction.self, failure: error)
                 .eraseToAnyPublisher()
         }
     }
 }
 
-public extension SKPaymentQueue {
-    var transactionObserver: CSKPaymentTransactionObserver {
-        return CSKPaymentTransactionObserver.shared
+public extension SKPaymentTransactionObserverProxy {
+    var paymentQueueRestoreCompletedTransactionsFinishedPublisher: AnyPublisher<SKPaymentQueue, Error> {
+        AnyPublisher.create { subscriber in
+            var skTarget: NSObject? = NSObject()
+            SKPaymentTransactionObserverProxy.shared.add(skTarget!, paymentQueueRestoreCompletedTransactionsFinishedAction: { skQueue in
+                subscriber.send(skQueue)
+            })
+            return AnyCancellable {
+                skTarget = nil
+            }
+        }
+        .setFailureType(to: Error.self)
+        .eraseToAnyPublisher()
     }
 
-    func restoreCompletedTransactionsPublisher() -> AnyPublisher<SKPaymentQueue, Error> {
-        let success = transactionObserver.csk_paymentQueueRestoreCompletedTransactionsFinished
-            .setFailureType(to: Error.self)
-            .eraseToAnyPublisher()
-
-        let error = transactionObserver.csk_restoreCompletedTransactionsFailedWithError
-            .tryMap { _, error -> SKPaymentQueue in
-                throw SKError(_nsError: error as NSError)
+    var restoreCompletedTransactionsFailedWithErrorPublisher: AnyPublisher<SKPaymentQueue, Error> {
+        AnyPublisher.create ({ subscriber in
+            var skTarget: NSObject? = NSObject()
+            SKPaymentTransactionObserverProxy.shared.add(skTarget!, restoreCompletedTransactionsFailedWithErrorAction: { skQueue, error in
+                subscriber.send((skQueue, error))
+            })
+            return AnyCancellable {
+                skTarget = nil
             }
-            .eraseToAnyPublisher()
-        
+        })
+        .setFailureType(to: Error.self)
+        .tryMap { _, error -> SKPaymentQueue in
+            throw SKError(_nsError: error as NSError)
+        }
+        .eraseToAnyPublisher()
+    }
+    
+    var updatedTransactionPublisher: AnyPublisher<SKPaymentTransaction, Never> {
+        AnyPublisher.create({ subscriber in
+            var skTarget: NSObject? = NSObject()
+            SKPaymentTransactionObserverProxy.shared.add(skTarget!, updatedTransactionAction: {
+                $0.forEach {
+                    subscriber.send($0)
+                }
+            })
+            return AnyCancellable {
+                skTarget = nil
+            }
+        })
+    }
+    
+    var updatedDownloadPublisher: AnyPublisher<SKDownload, Never> {
+        AnyPublisher.create({ subscriber in
+            var skTarget: NSObject? = NSObject()
+            SKPaymentTransactionObserverProxy.shared.add(skTarget!, updatedDownloadAction: {
+                $0.forEach({ subscriber.send($0) })
+            })
+            return AnyCancellable {
+                skTarget = nil
+            }
+        })
+    }
+}
+
+public extension SKPaymentQueue {
+
+    func restoreCompletedTransactionsPublisher() -> AnyPublisher<SKPaymentQueue, Error> {
+        let success = transactionObserver.paymentQueueRestoreCompletedTransactionsFinishedPublisher
+        let error = transactionObserver.restoreCompletedTransactionsFailedWithErrorPublisher
+
         return AnyPublisher<SKPaymentQueue, Error>.create { subscriber in
             let cancelable = success.amb(error)
                 .sink(receiveCompletion: {
@@ -140,9 +154,9 @@ public extension SKPaymentQueue {
                 }, receiveValue: {
                     subscriber.send($0)
                 })
-            
+
             self.restoreCompletedTransactions()
-            
+
             return AnyCancellable {
                 cancelable.cancel()
             }
@@ -154,9 +168,9 @@ public extension SKPaymentQueue {
 
         if shouldVerify {
             return AnyPublisher.create { subscriber in
-                let cancelable = self.transactionObserver.csk_updatedTransaction
+                let cancelable = self.transactionObserver.updatedTransactionPublisher
                     .setFailureType(to: Error.self)
-                    .flatMap({ transaction -> AnyPublisher<SKPaymentTransaction, Error> in
+                    .flatMap { transaction -> AnyPublisher<SKPaymentTransaction, Error> in
                         switch transaction.transactionState {
                         case .purchased:
                             return self.verifyReceiptPublisher(transaction: transaction)
@@ -164,7 +178,7 @@ public extension SKPaymentQueue {
                         }
                         return Just(transaction).setFailureType(to: Error.self)
                             .eraseToAnyPublisher()
-                    })
+                    }
                     .sink(receiveCompletion: {
                         subscriber.send(completion: $0)
                     }, receiveValue: {
@@ -177,7 +191,7 @@ public extension SKPaymentQueue {
         }
 
         return AnyPublisher.create { subscriber in
-            let cancelable = self.transactionObserver.csk_updatedTransaction
+            let cancelable = self.transactionObserver.updatedTransactionPublisher
                 .setFailureType(to: Error.self)
                 .sink(receiveCompletion: {
                     subscriber.send(completion: $0)
@@ -215,7 +229,7 @@ public extension SKPaymentQueue {
     @available(iOS 12.0, *)
     func startPublisher(downloads: [SKDownload]) -> AnyPublisher<SKDownload, Error> {
         AnyPublisher.create { subscriber in
-            let cancelable = self.transactionObserver.csk_updatedDownload
+            let cancelable = self.transactionObserver.updatedDownloadPublisher
                 .setFailureType(to: Error.self)
                 .sink(receiveCompletion: {
                     subscriber.send(completion: $0)

@@ -4,11 +4,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "CombineStoreKit",
+    name: "SKPackage",
     platforms: [.iOS(.v13)],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
-        .library(name: "CombineStoreKit", targets: ["CombineStoreKit"]),
+        .library(name: "SKCore", targets: ["SKCore"]),
+        .library(name: "SKCombine", targets: ["SKCombine"]),
+        .library(name: "SKAsync", targets: ["SKAsync"])
     ],
     dependencies: [
         .package(url: "https://github.com/CombineCommunity/CombineExt.git", .upToNextMajor(from: "1.8.1"))
@@ -16,6 +18,8 @@ let package = Package(
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
-        .target(name: "CombineStoreKit", dependencies: ["CombineExt"], path: "CombineStoreKit"),
+        .target(name: "SKCore", path: "SKCore"),
+        .target(name: "SKCombine", dependencies: ["CombineExt", "SKCore"], path: "SKCombine"),
+        .target(name: "SKAsync", dependencies: ["SKCore"], path: "SKAsync")
     ]
 )
