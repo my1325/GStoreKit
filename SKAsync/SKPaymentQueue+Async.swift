@@ -12,21 +12,32 @@ import SKCore
 #endif
 
 public extension SKPaymentQueue {
-    func verifyReceipt(_ transaction: SKPaymentTransaction, excludeOldTransaction: Bool = false) async throws {
-        #if DEBUG
-            let verifyReceiptURLString = "https://sandbox.itunes.apple.com/verifyReceipt"
-        #else
-            let verifyReceiptURLString = "https://buy.itunes.apple.com/verifyReceipt"
-        #endif
+    func verifyReceipt(_ transaction: SKPaymentTransaction,
+                       excludeOldTransaction: Bool = false,
+                       passwrod: String? = nil,
+                       isSandBox: Bool = false)
+    async throws -> (SKPaymentTransaction, Any)
+    {
+        let verifyReceiptURLString: String
+        if isSandBox {
+            verifyReceiptURLString = "https://sandbox.itunes.apple.com/verifyReceipt"
+        } else {
+            verifyReceiptURLString = "https://buy.itunes.apple.com/verifyReceipt"
+        }
         let url = URL(string: verifyReceiptURLString)!
         do {
             let receiptURL = Bundle.main.appStoreReceiptURL
             let receiptData = try Data(contentsOf: receiptURL!, options: [])
             let base64 = receiptData.base64EncodedString(options: Data.Base64EncodingOptions(rawValue: 0))
-            let json = try JSONSerialization.data(withJSONObject: [
-                    "receipt-data": base64,
-                    "exclude-old-transactions": excludeOldTransaction
-                ], options: [])
+            var parameters: [String : Any] = [
+                "receipt-data": base64,
+                "exclude-old-transactions": excludeOldTransaction
+            ]
+            
+            if let passwrod {
+                parameters["password"] = passwrod
+            }
+            let json = try JSONSerialization.data(withJSONObject: parameters, options: [])
 
             var request = URLRequest(url: url, cachePolicy: .reloadIgnoringCacheData)
             request.httpMethod = "POST"
@@ -41,8 +52,16 @@ public extension SKPaymentQueue {
                 
             let responseJSON = try JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)
             try verificationResult(for: transaction, response: responseJSON)
+            
+            return (transaction, responseJSON)
         } catch {
             if let receiptError = error as? SKReceiptError {
+                if case .invalid(code: 21007) = receiptError {
+                    return try await verifyReceipt(transaction,
+                                                   excludeOldTransaction: excludeOldTransaction,
+                                                   passwrod: passwrod,
+                                                   isSandBox: true)
+                }
                 throw receiptError
             } else {
                 throw SKReceiptError.underlying(error: error)
@@ -88,19 +107,13 @@ public extension SKPaymentQueue {
         }
     }
     
-    func purchase(_ product: SKProduct, shouldVerify: Bool = false) async throws -> [SKPaymentTransaction] {
+    func purchase(_ product: SKProduct) async throws -> [SKPaymentTransaction] {
         let transactions = try await withCheckedThrowingContinuation { continuation in
             var target: NSObject? = NSObject()
             transactionObserver.add(target!, updatedTransactionAction: { transactions in
                 continuation.resume(returning: transactions)
+                target = nil
             })
-        }
-        
-        guard shouldVerify else { return transactions }
-        
-        for transaction in transactions {
-            guard transaction.transactionState == .purchased else { continue }
-            try await verifyReceipt(transaction)
         }
         return transactions
     }

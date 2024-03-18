@@ -14,22 +14,33 @@ import StoreKit
 #endif
 
 public extension SKPaymentQueue {
-    func verifyReceiptPublisher(transaction: SKPaymentTransaction, excludeOldTransaction: Bool = false) -> AnyPublisher<SKPaymentTransaction, Error> {
-        #if DEBUG
-            let verifyReceiptURLString = "https://sandbox.itunes.apple.com/verifyReceipt"
-        #else
-            let verifyReceiptURLString = "https://buy.itunes.apple.com/verifyReceipt"
-        #endif
+    func verifyReceiptPublisher(transaction: SKPaymentTransaction, 
+                                excludeOldTransaction: Bool = false,
+                                passwrod: String? = nil,
+                                isSandBox: Bool = false)
+    -> AnyPublisher<(SKPaymentTransaction, Any), Error>
+    {
+        let verifyReceiptURLString: String
+        if isSandBox {
+            verifyReceiptURLString = "https://sandbox.itunes.apple.com/verifyReceipt"
+        } else {
+            verifyReceiptURLString = "https://buy.itunes.apple.com/verifyReceipt"
+        }
         let url = URL(string: verifyReceiptURLString)!
         do {
             let receiptURL = Bundle.main.appStoreReceiptURL
             let data = try Data(contentsOf: receiptURL!, options: [])
             let base64 = data.base64EncodedString(options: Data.Base64EncodingOptions(rawValue: 0))
-            let json = try JSONSerialization.data(withJSONObject:
-                [
-                    "receipt-data": base64,
-                    "exclude-old-transactions": excludeOldTransaction
-                ], options: [])
+            var parameters: [String : Any] = [
+                "receipt-data": base64,
+                "exclude-old-transactions": excludeOldTransaction
+            ]
+            
+            if let passwrod {
+                parameters["password"] = passwrod
+            }
+            
+            let json = try JSONSerialization.data(withJSONObject: parameters, options: [])
 
             var request = URLRequest(url: url, cachePolicy: .reloadIgnoringCacheData)
             request.httpMethod = "POST"
@@ -46,17 +57,30 @@ public extension SKPaymentQueue {
                     }
                     throw SKReceiptError.nonHTTPResponse(response: pair.0)
                 }
-                .flatMap { [unowned self] json -> AnyPublisher<SKPaymentTransaction, Error> in
-                    self.verificationResultPublisher(for: transaction, response: json)
+                .flatMap { [unowned self] response -> AnyPublisher<(SKPaymentTransaction, Any), Error> in
+                    self.verificationResultPublisher(for: transaction, response: response)
+                        .map({ ($0, response) })
+                        .catch {
+                            if case .invalid(code: 21007) = $0 {
+                                return self.verifyReceiptPublisher(transaction: transaction,
+                                                              excludeOldTransaction: excludeOldTransaction,
+                                                              passwrod: passwrod,
+                                                              isSandBox: true)
+                            }
+                            return Fail(outputType: (SKPaymentTransaction, Any).self, failure: $0)
+                                .eraseToAnyPublisher()
+                        }
+                        .eraseToAnyPublisher()
                 }
                 .eraseToAnyPublisher()
         } catch {
-            return Fail(outputType: SKPaymentTransaction.self, failure: error)
+            return Fail(outputType: (SKPaymentTransaction, Any).self, failure: error)
                 .eraseToAnyPublisher()
         }
     }
 
-    func verificationResultPublisher(for transaction: SKPaymentTransaction, response: Any) -> AnyPublisher<SKPaymentTransaction, Error> {
+    func verificationResultPublisher(for transaction: SKPaymentTransaction, 
+                                     response: Any) -> AnyPublisher<SKPaymentTransaction, SKReceiptError> {
         let json = response as! [String: AnyObject]
         let state = json["status"] as! Int
         if state == 0 {
@@ -68,7 +92,7 @@ public extension SKPaymentQueue {
                 return productId == transaction.payment.productIdentifier
             }
             if contains {
-                return Just(transaction).setFailureType(to: Error.self)
+                return Just(transaction).setFailureType(to: SKReceiptError.self)
                     .eraseToAnyPublisher()
             } else {
                 return Fail(outputType: SKPaymentTransaction.self, failure: SKReceiptError.illegal)
@@ -163,21 +187,24 @@ public extension SKPaymentQueue {
         }
     }
 
-    func addPublisher(product: SKProduct, shouldVerify: Bool) -> AnyPublisher<SKPaymentTransaction, Error> {
+    func addPublisher(product: SKProduct, verify: VerifyMethod) -> AnyPublisher<SKPaymentTransaction, Error> {
         let payment = SKPayment(product: product)
 
-        if shouldVerify {
+        if verify.isShouldVerify {
             return AnyPublisher.create { subscriber in
                 let cancelable = self.transactionObserver.updatedTransactionPublisher
                     .setFailureType(to: Error.self)
                     .flatMap { transaction -> AnyPublisher<SKPaymentTransaction, Error> in
                         switch transaction.transactionState {
                         case .purchased:
-                            return self.verifyReceiptPublisher(transaction: transaction)
-                        default: print("transaction state = \(transaction.transactionState)")
+                            return self.verifyReceiptPublisher(transaction: transaction, passwrod: verify.password)
+                                .map(\.0)
+                                .eraseToAnyPublisher()
+                        default:
+                            print("transaction state = \(transaction.transactionState)")
+                            return Just(transaction).setFailureType(to: Error.self)
+                                .eraseToAnyPublisher()
                         }
-                        return Just(transaction).setFailureType(to: Error.self)
-                            .eraseToAnyPublisher()
                     }
                     .sink(receiveCompletion: {
                         subscriber.send(completion: $0)
@@ -220,38 +247,6 @@ public extension SKPaymentQueue {
                     }
                 })
             self.add(payment)
-            return AnyCancellable {
-                cancelable.cancel()
-            }
-        }
-    }
-
-    @available(iOS 12.0, *)
-    func startPublisher(downloads: [SKDownload]) -> AnyPublisher<SKDownload, Error> {
-        AnyPublisher.create { subscriber in
-            let cancelable = self.transactionObserver.updatedDownloadPublisher
-                .setFailureType(to: Error.self)
-                .sink(receiveCompletion: {
-                    subscriber.send(completion: $0)
-                }, receiveValue: { download in
-                    switch download.state {
-                    case .waiting:
-                        print("waiting")
-                    case .active:
-                        print("active")
-                    case .finished:
-                        subscriber.send(download)
-                    case .failed:
-                        if let downloadError = download.error {
-                            subscriber.send(completion: .failure(downloadError))
-                        }
-                    case .cancelled:
-                        subscriber.send(completion: .finished)
-                    case .paused:
-                        print("paused")
-                    }
-                })
-            self.start(downloads)
             return AnyCancellable {
                 cancelable.cancel()
             }

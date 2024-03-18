@@ -45,16 +45,3 @@ public extension SKProductsRequest {
         start()
     }
 }
-
-//
-//    static func products(_ productIds: Set<String>) async throws -> [SKProduct] {
-//        try await withCheckedThrowingContinuation { continuation in
-//            let productsRequest = SKProductsRequest(productIdentifiers: productIds)
-//            productsRequest.start {
-//                continuation.resume(returning: $0.products)
-//            } errorAction: {
-//                continuation.resume(throwing: $0)
-//            }
-//        }
-//    }
-//}

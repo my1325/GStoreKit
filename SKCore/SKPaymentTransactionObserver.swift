@@ -8,6 +8,26 @@
 import Foundation
 import StoreKit
 
+public enum VerifyMethod {
+    case none
+    case `default`
+    case withPassword(password: String)
+    
+    public var isShouldVerify: Bool {
+        switch self {
+        case .none: return false
+        default: return true
+        }
+    }
+    
+    public var password: String? {
+        switch self {
+        case .none, .default: return nil
+        case let .withPassword(password): return password
+        }
+    }
+}
+
 struct SKObserverTransactionAction {
     typealias Observer = SKPaymentTransactionObserverProxy.Observer
     let updatedTransactionAction: Observer.PaymentTransactionAction
