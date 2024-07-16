@@ -1,7 +1,7 @@
 Pod::Spec.new do |s|
 
  s.name             = "CombineStoreKit"
- s.version           = "0.0.2"
+ s.version           = "0.0.3"
  s.summary         = "RxStoreKit rewrite with Combine"
  s.homepage        = "https://github.com/my1325/CombineStoreKit.git"
  s.license            = "MIT"
