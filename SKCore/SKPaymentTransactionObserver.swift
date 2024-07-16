@@ -160,11 +160,11 @@ open class SKPaymentTransactionObserverProxy {
     }
     
     public func add(_ target: AnyObject, restoreCompletedTransactionsFailedWithErrorAction: @escaping Observer.PaymentQueueWithErrorAction) {
-        updatedTransactionActions.append(.init(target: target, restoreCompletedTransactionsFailedWithErrorAction: restoreCompletedTransactionsFailedWithErrorAction))
+        restoreCompletedTransactionsFailedWithErrorActions.append(.init(target: target, restoreCompletedTransactionsFailedWithErrorAction: restoreCompletedTransactionsFailedWithErrorAction))
     }
     
     public func add(_ target: AnyObject, paymentQueueRestoreCompletedTransactionsFinishedAction: @escaping Observer.PaymentQueueAction) {
-        updatedTransactionActions.append(.init(target: target, paymentQueueRestoreCompletedTransactionsFinishedAction: paymentQueueRestoreCompletedTransactionsFinishedAction))
+        paymentQueueRestoreCompletedTransactionsFinishedActions.append(.init(target: target, paymentQueueRestoreCompletedTransactionsFinishedAction: paymentQueueRestoreCompletedTransactionsFinishedAction))
     }
     
     public func add(_ target: AnyObject, updatedDownloadAction: @escaping Observer.DownloadAction) {
