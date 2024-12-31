@@ -7,8 +7,8 @@
 
 import Foundation
 import StoreKit
-#if canImport(SKCore)
-import SKCore
+#if canImport(StoreKitCore)
+import StoreKitCore
 #endif
 
 public extension SKProductsRequest {
@@ -22,5 +22,9 @@ public extension SKProductsRequest {
                 continuation.resume(throwing: $0)
             }
         }
+    }
+    
+    static func product(_ productId: String) async throws -> SKProduct? {
+        try await products([productId]).first
     }
 }

@@ -9,8 +9,8 @@ import Foundation
 import StoreKit
 import Combine
 import CombineExt
-#if canImport(SKCore)
-import SKCore
+#if canImport(StoreKitCore)
+import StoreKitCore
 #endif
 
 public extension SKProductsRequest {

@@ -13,6 +13,7 @@ public enum SKReceiptError: Error {
     case urlError(error: URLError)
     case underlying(error: Error)
     case nonHTTPResponse(response: URLResponse)
+    case emptyTransaction
 }
 
 extension SKReceiptError: CustomStringConvertible {
@@ -35,6 +36,8 @@ extension SKReceiptError: CustomStringConvertible {
             message = "This receipt is from the test environment, but it was sent to the production environment for verification. Send it to the test environment instead."
         case .invalid(21008):
             message = "This receipt is from the production environment, but it was sent to the test environment for verification. Send it to the production environment instead."
+        case .emptyTransaction:
+            message = "Empty transaction."
         case let .urlError(error):
             message = error.localizedDescription
         case let .underlying(error):

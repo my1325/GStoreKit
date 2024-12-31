@@ -25,11 +25,17 @@ public class SKProductDelegateProxy: NSObject, SKProductsRequestDelegate {
         self.errorAction = errorAction
     }
     
-    public func productsRequest(_ request: SKProductsRequest, didReceive response: SKProductsResponse) {
+    public func productsRequest(
+        _ request: SKProductsRequest,
+        didReceive response: SKProductsResponse
+    ) {
         responseAction(response)
     }
     
-    public func request(_ request: SKRequest, didFailWithError error: Error) {
+    public func request(
+        _ request: SKRequest,
+        didFailWithError error: Error
+    ) {
         errorAction(error)
     }
 }
@@ -39,9 +45,17 @@ public extension SKProductsRequest {
         _ responseAction: @escaping SKProductDelegateProxy.SKProductDelegateResponseAction,
         errorAction: @escaping SKProductDelegateProxy.SKProductDelegateErrorAction
     ) {
-        let skDelegate = SKProductDelegateProxy(responseAction: responseAction, errorAction: errorAction)
+        let skDelegate = SKProductDelegateProxy(
+            responseAction: responseAction,
+            errorAction: errorAction
+        )
         delegate = skDelegate
-        objc_setAssociatedObject(self, SKProductDelegateProxy.requestDelegateKey, skDelegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(
+            self,
+            SKProductDelegateProxy.requestDelegateKey,
+            skDelegate,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
         start()
     }
 }
