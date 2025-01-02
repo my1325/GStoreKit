@@ -48,6 +48,7 @@ public extension SKPaymentQueue {
                 case .purchased, .restored:
                     continuation.resume(returning: transaction)
                 case .failed:
+                    self.finishTransaction(transaction)
                     continuation.resume(throwing: transaction.error ?? SKReceiptError.illegal)
                 case .purchasing, .deferred: break
                 default: break
