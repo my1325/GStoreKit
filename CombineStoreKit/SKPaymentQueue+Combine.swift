@@ -106,6 +106,7 @@ public extension SKPaymentQueue {
                         subscriber.send(transaction)
                         subscriber.send(completion: .finished)
                     case .failed:
+                        self.finishTransaction(transaction)
                         subscriber.send(completion: .failure(transaction.error ?? SKReceiptError.illegal))
                     default:
                         subscriber.send(transaction)
