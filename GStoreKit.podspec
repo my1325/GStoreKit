@@ -16,8 +16,8 @@ Pod::Spec.new do |s|
  end
 
  s.subspec 'CombineStoreKit' do |ss|
- 	ss.source_files = 'SKCombine/*.swift'
- 	ss.dependency 'CombineStoreKit/StoreKitCore'
+ 	ss.source_files = 'CombineStoreKit/*.swift'
+ 	ss.dependency 'GStoreKit/StoreKitCore'
  	ss.dependency 'CombineExt'
  end 
 
