@@ -185,7 +185,6 @@ open class SKPaymentTransactionObserverProxy {
         return cancellable
     }
     
-
     @discardableResult
     open func onUpdatedDownload(_ action: @escaping Observer.DownloadAction) -> SKObserverTransactionActionCancellable {
         let cancellable = SKObserverTransactionActionCancellable(updatedDownloadAction: action)
@@ -262,5 +261,23 @@ open class SKPaymentTransactionObserverProxy {
 public extension SKPaymentQueue {
     var transactionObserver: SKPaymentTransactionObserverProxy {
         .shared
+    }
+    
+    func addPayment(
+        _ product: SKProduct,
+        onUpdated: @escaping SKPaymentTransactionObserverProxy.Observer.PaymentTransactionAction
+    ) {
+        addPayment(
+            SKPayment(product: product),
+            onUpdated: onUpdated
+        )
+    }
+    
+    func addPayment(
+        _ payment: SKPayment,
+        onUpdated: @escaping SKPaymentTransactionObserverProxy.Observer.PaymentTransactionAction
+    ) {
+        transactionObserver.onUpdated(onUpdated)
+        add(payment)
     }
 }

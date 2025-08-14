@@ -13,7 +13,6 @@ import StoreKit
     import StoreKitCore
 #endif
 
-
 public extension SKPaymentTransactionObserverProxy {
     var restoreCompletedPublisher: AnyPublisher<SKPaymentQueue, Error> {
         AnyPublisher.create { subscriber in
@@ -30,9 +29,9 @@ public extension SKPaymentTransactionObserverProxy {
     var restorFailedPublisher: AnyPublisher<SKPaymentQueue, Error> {
         AnyPublisher.create { subscriber in
             let cancellable = SKPaymentTransactionObserverProxy.shared
-                .onRestoreFailed  { skQueue, error in
-                subscriber.send((skQueue, error))
-            }
+                .onRestoreFailed { skQueue, error in
+                    subscriber.send((skQueue, error))
+                }
             return AnyCancellable(cancellable.cancel)
         }
         .setFailureType(to: Error.self)
@@ -56,8 +55,8 @@ public extension SKPaymentTransactionObserverProxy {
         AnyPublisher.create { subscriber in
             let cancellable = SKPaymentTransactionObserverProxy.shared
                 .onUpdatedDownload {
-                $0.forEach { subscriber.send($0) }
-            }
+                    $0.forEach { subscriber.send($0) }
+                }
             return AnyCancellable(cancellable.cancel)
         }
     }
@@ -83,7 +82,7 @@ public extension SKPaymentQueue {
             }
         }
     }
-    
+
     func addPublisher(_ productId: String) -> AnyPublisher<SKPaymentTransaction, Error> {
         let payment = SKMutablePayment()
         payment.productIdentifier = productId
@@ -93,7 +92,7 @@ public extension SKPaymentQueue {
     func addPublisher(product: SKProduct) -> AnyPublisher<SKPaymentTransaction, Error> {
         publisher(for: SKPayment(product: product))
     }
-    
+
     private func publisher(for payment: SKPayment) -> AnyPublisher<SKPaymentTransaction, Error> {
         AnyPublisher.create { subscriber in
             let cancelable = self.transactionObserver.updatedPublisher
@@ -102,11 +101,9 @@ public extension SKPaymentQueue {
                     subscriber.send(completion: $0)
                 }, receiveValue: { transaction in
                     switch transaction.transactionState {
-                    case .purchased, .restored:
+                    case .purchased:
                         subscriber.send(transaction)
-                        subscriber.send(completion: .finished)
-                    case .failed:
-                        self.finishTransaction(transaction)
+                    case .failed, .restored:
                         subscriber.send(completion: .failure(transaction.error ?? SKReceiptError.illegal))
                     default:
                         subscriber.send(transaction)
@@ -119,3 +116,5 @@ public extension SKPaymentQueue {
         }
     }
 }
+
+//

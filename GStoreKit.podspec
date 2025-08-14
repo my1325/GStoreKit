@@ -21,9 +21,8 @@ Pod::Spec.new do |s|
  	ss.dependency 'CombineExt'
  end 
 
- s.subspec 'AsyncStoreKit' do |ss|
- 	ss.source_files = 'AsyncStoreKit/*.swift'
- 	ss.dependency 'GStoreKit/StoreKitCore'
+ s.subspec 'SKPaymentV2Objc' do |ss|
+ 	ss.source_files = 'SKPaymentV2Objc/*.swift'
  end
 
 end

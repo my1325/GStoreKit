@@ -10,7 +10,7 @@ let package = Package(
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(name: "StoreKitCore", targets: ["StoreKitCore"]),
         .library(name: "CombineStoreKit", targets: ["CombineStoreKit"]),
-        .library(name: "AsyncStoreKit", targets: ["AsyncStoreKit"])
+        .library(name: "SKPaymentV2Objc", targets: ["SKPaymentV2Objc"]),
     ],
     dependencies: [
         .package(url: "https://github.com/CombineCommunity/CombineExt.git", .upToNextMajor(from: "1.8.1"))
@@ -20,6 +20,6 @@ let package = Package(
         // Targets can depend on other targets in this package and products from dependencies.
         .target(name: "StoreKitCore", path: "StoreKitCore"),
         .target(name: "CombineStoreKit", dependencies: ["CombineExt", "StoreKitCore"], path: "CombineStoreKit"),
-        .target(name: "AsyncStoreKit", dependencies: ["StoreKitCore"], path: "AsyncStoreKit")
+        .target(name: "SKPaymentV2Objc", path: "SKPaymentV2Objc"),
     ]
 )
