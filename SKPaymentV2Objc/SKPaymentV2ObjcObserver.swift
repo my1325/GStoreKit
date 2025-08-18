@@ -7,29 +7,34 @@
 
 @available(iOS 15.0, *)
 actor SKPaymentV2ObjcObserver {
-    private(set) var transcationUpdatedObserver: (@Sendable (SKPaymentV2Result) -> Void)?
-    
-    private(set) var cachedUnhandedTransactions: [SKPaymentV2Result] = []
+    private var transactionUpdatedObserver: (@Sendable (SKPaymentV2Result) -> Void)?
+    private var cachedUnhandledTransactions: [SKPaymentV2Result] = []
     
     func observeUpdatedTransactions(
         _ action: @escaping @Sendable (SKPaymentV2Result) -> Void
     ) {
-        transcationUpdatedObserver = action
+        transactionUpdatedObserver = action
+        
+        // Process cached transactions
         Task {
-            while !cachedUnhandedTransactions.isEmpty {
-                let result = cachedUnhandedTransactions.removeFirst()
-                await scheduleTransactionUpdateObserver(result: result)
-            }
+            await processCachedTransactions()
         }
     }
     
     func scheduleTransactionUpdateObserver(result: SKPaymentV2Result) async {
-        if let observer = transcationUpdatedObserver {
+        if let observer = transactionUpdatedObserver {
             await MainActor.run {
                 observer(result)
             }
         } else {
-            cachedUnhandedTransactions.append(result)
+            cachedUnhandledTransactions.append(result)
+        }
+    }
+    
+    private func processCachedTransactions() async {
+        while !cachedUnhandledTransactions.isEmpty {
+            let result = cachedUnhandledTransactions.removeFirst()
+            await scheduleTransactionUpdateObserver(result: result)
         }
     }
 }

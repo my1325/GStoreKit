@@ -1,5 +1,5 @@
 //
-//  File.swift
+//  SKPaymentV2Objc.swift
 //  GStoreKit
 //
 //  Created by mayong on 2025/8/14.
@@ -12,17 +12,61 @@ import StoreKit
 public typealias SKPaymentV2Result = (SKPaymentV2ObjcTransaction?, Error?)
 
 @available(iOS 15.0, *)
+public enum SKPaymentV2Error: Error {
+    case unverifiedTransaction(Transaction, Error)
+    case paymentCancelled
+    case unknownError(String)
+    
+    var localizedDescription: String {
+        switch self {
+        case .unverifiedTransaction(_, let error):
+            return "Transaction verification failed: \(error.localizedDescription)"
+        case .paymentCancelled:
+            return "Payment was cancelled by the user."
+        case .unknownError(let message):
+            return "Unknown error occurred: \(message)"
+        }
+    }
+}
+
+@available(iOS 15.0, *)
+public extension Product.PurchaseResult {
+    var transaction: Transaction {
+        get throws {
+            switch self {
+            case let .success(.verified(transaction)):
+                return transaction
+            case let .success(.unverified(transaction, error)):
+                throw SKPaymentV2Error.unverifiedTransaction(transaction, error)
+            case .userCancelled:
+                throw SKPaymentV2Error.paymentCancelled
+            case .pending:
+                throw SKPaymentV2Error.unknownError("Purchase is pending.")
+            @unknown default:
+                throw SKPaymentV2Error.unknownError("Unknown purchase result.")
+            }
+        }
+    }
+}
+
+@available(iOS 15.0, *)
 open class SKPaymentV2Objc: NSObject {
     @objc public static let shared = SKPaymentV2Objc()
     
-    let updatedObserver = SKPaymentV2ObjcObserver()
+    private let updatedObserver = SKPaymentV2ObjcObserver()
+    private let currentEntitlementsObserver = SKPaymentV2ObjcObserver()
+    private let taskManager = SKPaymentTaskManager()
     
-    let currentEntitlementsObserver = SKPaymentV2ObjcObserver()
+    // Task 管理
+    private var observerTasks: [Task<Void, Never>] = []
     
     override private init() {
         super.init()
-        observeTransactionUpdates()
-        observeTransactionCurrentEntitlements()
+        startObservingTransactions()
+    }
+    
+    deinit {
+        cancelAllTasks()
     }
     
     @objc public func purchase(
@@ -30,19 +74,21 @@ open class SKPaymentV2Objc: NSObject {
         completion: @escaping @Sendable (SKPaymentV2ObjcTransaction?, Error?) -> Void
     ) {
         Task {
-            do {
-                let purchasedTransaction = try await product.product.purchase().transaction
-                await MainActor.run {
-                    completion(
-                        SKPaymentV2ObjcTransaction(transaction: purchasedTransaction),
-                        nil
-                    )
+            await taskManager.executeOnceTask(
+                priority: .userInitiated,
+                operation: {
+                    try await product.product.purchase()
+                        .transaction
+                },
+                completion: { result in
+                    switch result {
+                    case .success(let transaction):
+                        completion(SKPaymentV2ObjcTransaction(transaction: transaction), nil)
+                    case .failure(let error):
+                        completion(nil, error)
+                    }
                 }
-            } catch {
-                await MainActor.run {
-                    completion(nil, error)
-                }
-            }
+            )
         }
     }
     
@@ -50,91 +96,108 @@ open class SKPaymentV2Objc: NSObject {
         for identifiers: [String],
         completion: @escaping @Sendable ([SKPaymentV2ObjcProduct]?, Error?) -> Void
     ) {
+        let taskId = "fetchProducts-\(identifiers.joined(separator: ","))"
+        
         Task {
-            do {
-                let products = try await Product.products(for: identifiers)
-                await MainActor.run {
-                    completion(
-                        products.map(SKPaymentV2ObjcProduct.init),
-                        nil
-                    )
+            await taskManager.executeTask(
+                id: taskId,
+                priority: .userInitiated,
+                operation: {
+                    try await Product.products(for: identifiers)
+                },
+                completion: { result in
+                    switch result {
+                    case .success(let products):
+                        completion(products.map(SKPaymentV2ObjcProduct.init), nil)
+                    case .failure(let error):
+                        completion(nil, error)
+                    }
                 }
-            } catch {
-                await MainActor.run {
-                    completion(
-                        nil,
-                        error
-                    )
-                }
-            }
+            )
         }
     }
     
-    /// updated.
+    /// Observe transaction updates.
     @objc public func observeUpdatedTransactions(
         _ action: @escaping @Sendable (SKPaymentV2ObjcTransaction?, Error?) -> Void
     ) {
-        Task {
-            await updatedObserver.observeUpdatedTransactions {
-                action($0.0, $0.1)
-            }
+        Task { [weak self] in
+            await self?.updatedObserver.observeUpdatedTransactions(action)
         }
     }
     
-    /// Observe current entitlements. Restore
+    /// Observe current entitlements for restore functionality.
     @objc public func observeCurrentEntitlements(
         _ action: @escaping @Sendable (SKPaymentV2ObjcTransaction?, Error?) -> Void
     ) {
+        Task { [weak self] in
+            await self?.currentEntitlementsObserver.observeUpdatedTransactions(action)
+        }
+    }
+    
+    // MARK: - Task Management
+    
+    /// 取消所有正在进行的任务
+    @objc public func cancelAllTasks() {
+        observerTasks.forEach { $0.cancel() }
+        observerTasks.removeAll()
+        
         Task {
-            await currentEntitlementsObserver.observeUpdatedTransactions {
-                action($0.0, $0.1)
+            await taskManager.cancelAllTasks()
+        }
+    }
+    
+    /// 重新开始观察事务（用于恢复场景）
+    @objc public func restartObserving() {
+        cancelAllTasks()
+        startObservingTransactions()
+    }
+    
+    /// 获取当前活跃任务数量
+    @objc public func getActiveTaskCount(completion: @escaping @Sendable (Int) -> Void) {
+        Task {
+            let count = await taskManager.activeTaskCount
+            await MainActor.run {
+                completion(count)
             }
         }
     }
     
-    private func observeTransactionCurrentEntitlements() {
-        Task {
-            for await update in Transaction.currentEntitlements {
-                switch update {
-                case let .verified(transaction):
-                    await currentEntitlementsObserver.scheduleTransactionUpdateObserver(
-                        result: (
-                            transaction: .init(transaction: transaction),
-                            error: nil
-                        )
-                    )
-                case let .unverified(transaction, error):
-                    await currentEntitlementsObserver.scheduleTransactionUpdateObserver(
-                        result: (
-                            transaction: .init(transaction: transaction),
-                            error: error
-                        )
-                    )
-                }
-            }
-        }
-    }
+    // MARK: - Private Methods
     
-    private func observeTransactionUpdates() {
-        Task {
+    private func startObservingTransactions() {
+        let updatesTask = Task { [weak self] in
+            guard let self = self else { return }
             for await update in Transaction.updates {
-                switch update {
-                case let .verified(transaction):
-                    await updatedObserver.scheduleTransactionUpdateObserver(
-                        result: (
-                            transaction: .init(transaction: transaction),
-                            error: nil
-                        )
-                    )
-                case let .unverified(transaction, error):
-                    await updatedObserver.scheduleTransactionUpdateObserver(
-                        result: (
-                            transaction: .init(transaction: transaction),
-                            error: error
-                        )
-                    )
-                }
+                guard !Task.isCancelled else { break }
+                await self.handleTransactionUpdate(update, observer: self.updatedObserver)
             }
         }
+        
+        let entitlementsTask = Task { [weak self] in
+            guard let self = self else { return }
+            for await update in Transaction.currentEntitlements {
+                guard !Task.isCancelled else { break }
+                await self.handleTransactionUpdate(update, observer: self.currentEntitlementsObserver)
+            }
+        }
+        
+        observerTasks.append(contentsOf: [updatesTask, entitlementsTask])
+    }
+    
+    private func handleTransactionUpdate(
+        _ update: VerificationResult<Transaction>,
+        observer: SKPaymentV2ObjcObserver
+    ) async {
+        let result: SKPaymentV2Result
+        
+        switch update {
+        case .verified(let transaction):
+            result = (SKPaymentV2ObjcTransaction(transaction: transaction), nil)
+        case .unverified(let transaction, let error):
+            result = (SKPaymentV2ObjcTransaction(transaction: transaction), error)
+        }
+        
+        await observer.scheduleTransactionUpdateObserver(result: result)
     }
 }
